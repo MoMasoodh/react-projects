@@ -1,198 +1,195 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import "./index.css";
 
-export default function App() {
-  const [expr, setExpr] = useState("");
-  const [result, setResult] = useState("");
+/* constants */
+const LINES = [
+  [0,1,2],[3,4,5],[6,7,8],
+  [0,3,6],[1,4,7],[2,5,8],
+  [0,4,8],[2,4,6]
+];
 
-  // --- Sound engine (WebAudio) ---
-  const playBeep = (opts = {}) => {
-    const { type = "sine", frequency = 880, duration = 0.09, gain = 0.08 } = opts;
-    try {
-      const ac = (window.audioCtx ||= new (window.AudioContext || window.webkitAudioContext)());
-      const o = ac.createOscillator();
-      const g = ac.createGain();
-      o.type = type;
-      o.frequency.value = frequency;
-      g.gain.value = 0;
-      o.connect(g);
-      g.connect(ac.destination);
-      const now = ac.currentTime;
-      g.gain.setValueAtTime(0, now);
-      g.gain.linearRampToValueAtTime(gain, now + 0.005);
-      o.start(now);
-      g.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-      o.stop(now + duration + 0.02);
-    } catch (e) {
-      // ignore if AudioContext blocked (e.g., not allowed)
-      // console.warn("Audio error", e);
+function checkWinner(board) {
+  for (const [a,b,c] of LINES) {
+    if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+      return { winner: board[a], line: [a,b,c] };
     }
-  };
+  }
+  if (board.every(Boolean)) return { winner: "TIE", line: [] };
+  return null;
+}
 
-  const playClick = () => playBeep({ type: "triangle", frequency: 900, duration: 0.07, gain: 0.06 });
-  const playOp = () => playBeep({ type: "sawtooth", frequency: 520, duration: 0.10, gain: 0.08 });
-  const playEq = () => {
-    // little ascending arpeggio for equals
-    playBeep({ type: "sine", frequency: 660, duration: 0.07, gain: 0.08 });
-    setTimeout(() => playBeep({ type: "sine", frequency: 880, duration: 0.08, gain: 0.09 }), 80);
-    setTimeout(() => playBeep({ type: "sine", frequency: 1100, duration: 0.12, gain: 0.10 }), 160);
-  };
+export default function App(){
+  const [board, setBoard] = useState(Array(9).fill(null));
+  const [xIsNext, setXIsNext] = useState(true);
+  const [mode, setMode] = useState("vs-computer"); // or "two"
+  const [aiThinking, setAiThinking] = useState(false);
+  const [scores, setScores] = useState({X:0, O:0, T:0});
+  const [whoStarts, setWhoStarts] = useState("X");
 
-  // --- Safe evaluation ---
-  const safeEvaluate = (s) => {
-    try {
-      if (!/^[0-9+\-*/(). %]*$/.test(s)) return "Err";
-      const replaced = s.replace(/%(?=\D|$)/g, "/100");
-      // eslint-disable-next-line no-new-func
-      const val = Function(`"use strict"; return (${replaced})`)();
-      if (Number.isFinite(val)) return String(val);
-      return "Err";
-    } catch {
-      return "Err";
-    }
-  };
+  const cellRefs = useRef([]);
+  const [winInfo, setWinInfo] = useState({ winner: null, line: [] });
 
   useEffect(() => {
-    if (expr === "") return setResult("");
-    const r = safeEvaluate(expr);
-    setResult(r === "Err" ? "" : r);
-  }, [expr]);
-
-  const triggerButtonVisual = (char) => {
-    // find one matching button (first occurrence)
-    const els = Array.from(document.querySelectorAll(".key"));
-    const found = els.find((el) => el.textContent.trim() === char);
-    if (found) {
-      found.classList.add("pressed");
-      setTimeout(() => found.classList.remove("pressed"), 140);
-    }
-  };
-
-  const add = (ch) => {
-    const last = expr.slice(-1);
-    if (/[+\-*/. ]/.test(last) && /[+*/.]/.test(ch)) return;
-    setExpr((p) => p + ch);
-  };
-
-  const calc = () => {
-    const r = safeEvaluate(expr);
-    if (r === "Err") setResult("Err");
-    else {
-      setExpr(String(r));
-      setResult("");
-    }
-  };
-
-  const clearAll = () => {
-    setExpr("");
-    setResult("");
-  };
-
-  const backspace = () => setExpr((p) => p.slice(0, -1));
-
-  // keyboard support
-  const handleKey = (e) => {
-    const k = e.key;
-    if (/^[0-9]$/.test(k)) {
-      add(k);
-      playClick();
-      triggerButtonVisual(k);
-    } else if (k === ".") {
-      add(".");
-      playClick();
-      triggerButtonVisual(".");
-    } else if (["+", "-", "*", "/"].includes(k)) {
-      add(k);
-      playOp();
-      triggerButtonVisual(k);
-    } else if (k === "Enter" || k === "=") {
-      calc();
-      playEq();
-      triggerButtonVisual("=");
-    } else if (k === "Backspace") {
-      backspace();
-      playClick();
-      triggerButtonVisual("←");
-    } else if (k === "Escape") {
-      clearAll();
-      // C button visual
-      triggerButtonVisual("C");
-      playBeep({ frequency: 220, duration: 0.12, gain: 0.09 });
-    } else if (k === "%") {
-      add("%");
-      playOp();
-      triggerButtonVisual("%");
-    }
-  };
-
-  useEffect(() => {
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
+    setXIsNext(whoStarts === "X");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expr]);
+  }, []);
 
-  // button set
-  const buttons = [
-    "C", "←", "%", "/",
-    "7", "8", "9", "*",
-    "4", "5", "6", "-",
-    "1", "2", "3", "+",
-    "0", ".", "="
-  ];
-
-  const handleClick = (k) => {
-    if (k === "C") {
-      clearAll();
-      playBeep({ frequency: 240, duration: 0.12, gain: 0.09 });
-    } else if (k === "←") {
-      backspace();
-      playClick();
-    } else if (k === "=") {
-      calc();
-      playEq();
-    } else if (["/", "*", "-", "+", "%"].includes(k)) {
-      add(k);
-      playOp();
+  useEffect(() => {
+    const res = checkWinner(board);
+    if (res) {
+      setWinInfo(res);
+      if (res.winner && res.winner !== "TIE") {
+        setScores(s => ({...s, [res.winner]: s[res.winner] + 1}));
+      } else if (res.winner === "TIE") {
+        setScores(s => ({...s, T: s.T + 1}));
+      }
     } else {
-      add(k);
-      playClick();
+      setWinInfo({ winner: null, line: [] });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board]);
+
+  /* Minimax AI (unbeatable) */
+  const minimax = (boardState, player, maximizing) => {
+    const winnerCheck = checkWinner(boardState);
+    if (winnerCheck) {
+      if (winnerCheck.winner === "X") return { score: 10 };
+      if (winnerCheck.winner === "O") return { score: -10 };
+      if (winnerCheck.winner === "TIE") return { score: 0 };
+    }
+    const moves = [];
+    for (let i=0;i<boardState.length;i++){
+      if (!boardState[i]) {
+        const nb = boardState.slice();
+        nb[i] = player;
+        const nextP = player === "X" ? "O" : "X";
+        const res = minimax(nb, nextP, !maximizing);
+        moves.push({ index: i, score: res.score });
+      }
+    }
+    if (maximizing) {
+      let best = moves[0];
+      for (const m of moves) if (m.score > best.score) best = m;
+      return best;
+    } else {
+      let best = moves[0];
+      for (const m of moves) if (m.score < best.score) best = m;
+      return best;
     }
   };
+
+  useEffect(() => {
+    if (mode !== "vs-computer") return;
+    const compSymbol = (whoStarts === "X") ? "O" : "X";
+    if (checkWinner(board)) return;
+    const current = xIsNext ? "X" : "O";
+    if (current === compSymbol) {
+      setAiThinking(true);
+      setTimeout(() => {
+        const maximizing = current === "X";
+        const best = minimax(board, current, maximizing);
+        if (best && typeof best.index === "number") {
+          makeMove(best.index, compSymbol, true);
+        }
+        setAiThinking(false);
+      }, 380 + Math.random()*180);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board, xIsNext, mode, whoStarts]);
+
+  const makeMove = (idx, forced=null, fromAi=false) => {
+    if (board[idx] || checkWinner(board)) return;
+    const nb = board.slice();
+    const symbol = forced || (xIsNext ? "X" : "O");
+    nb[idx] = symbol;
+    setBoard(nb);
+    setXIsNext(!xIsNext);
+  };
+
+  const handleCell = (i) => {
+    const compSymbol = (whoStarts === "X") ? "O" : "X";
+    const current = xIsNext ? "X" : "O";
+    if (mode === "vs-computer" && current === compSymbol) return;
+    if (winInfo && winInfo.winner) return;
+    makeMove(i);
+  };
+
+  const resetBoard = (keepScores=true) => {
+    setBoard(Array(9).fill(null));
+    setXIsNext(whoStarts === "X");
+    setWinInfo({ winner: null, line: [] });
+    if (!keepScores) setScores({X:0,O:0,T:0});
+  };
+
+  const toggleStarter = (sym) => {
+    setWhoStarts(sym);
+    setXIsNext(sym === "X");
+    setBoard(Array(9).fill(null));
+  };
+
+  const winningLineIndices = winInfo && winInfo.line ? winInfo.line : [];
 
   return (
-    <div className="arcade-root">
-      <div className="arcade-shell" role="application" aria-label="Arcade Calculator">
-        <div className="arcade-top">
-          <div className="arcade-title">கணிப்பொறி</div>
-
-          <div className="arcade-screen" aria-live="polite">
-            <div className="expr" title={expr}>{expr || "0"}</div>
-            <div className="result">{result ? `≈ ${result}` : ""}</div>
+    <div className="xo-root">
+      <div className="xo-shell">
+        <header className="xo-header">
+          <div>
+            <div className="xo-title">TIC TAC TOE</div>
+            <div className="xo-sub">X vs O</div>
           </div>
-        </div>
 
-        <div className="arcade-keys">
-          {buttons.map((k, i) => {
-            const isOp = ["/", "*", "-", "+", "="].includes(k);
-            const cls = `key ${k === "C" ? "key-clear" : ""} ${k === "=" ? "key-eq" : ""} ${isOp ? "key-op" : ""}`;
-            return (
-              <button
-                key={i}
-                className={cls}
-                onClick={() => handleClick(k)}
-                onMouseDown={() => { /* visual handled in CSS :active & JS pressed class for keyboard */ }}
-                aria-label={`Key ${k}`}
-                type="button"
-              >
-                <span>{k}</span>
-              </button>
-            );
-          })}
-        </div>
+          <div className="xo-controls">
+            <div className="mode-switch">
+              <button className={`mode-btn ${mode==="vs-computer" ? "active" : ""}`} onClick={() => { setMode("vs-computer"); resetBoard(true); }}>Vs Computer</button>
+              <button className={`mode-btn ${mode==="two" ? "active" : ""}`} onClick={() => { setMode("two"); resetBoard(true); }}>Two Player</button>
+            </div>
 
-        <div className="arcade-footer">
-          Tip: Use keyboard (0–9, + - * /, Enter, Backspace, Esc)
-        </div>
+            <div className="starter-row">
+              <label className="small">Starter:</label>
+              <button className={`starter ${whoStarts==="X" ? "on" : ""}`} onClick={() => toggleStarter("X")}>X</button>
+              <button className={`starter ${whoStarts==="O" ? "on" : ""}`} onClick={() => toggleStarter("O")}>O</button>
+            </div>
+
+            <div className="scoreboard">
+              <div className="s-item">X: <strong>{scores.X}</strong></div>
+              <div className="s-item">T: <strong>{scores.T}</strong></div>
+              <div className="s-item">O: <strong>{scores.O}</strong></div>
+            </div>
+
+            <div className="actions">
+              <button className="action" onClick={() => resetBoard(true)}>New Round</button>
+              <button className="action ghost" onClick={() => resetBoard(false)}>Reset Scores</button>
+            </div>
+          </div>
+        </header>
+
+        <main className="xo-board-wrap">
+          <div className="xo-board-area">
+            <div className="xo-board">
+              {board.map((cell, i) => (
+                <button
+                  key={i}
+                  ref={el => cellRefs.current[i] = el}
+                  className={`xo-cell ${cell ? "filled" : ""} ${winningLineIndices.includes(i) ? "win" : ""}`}
+                  onClick={() => handleCell(i)}
+                >
+                  <span className={`mark ${cell === "X" ? "x" : cell === "O" ? "o" : ""}`}>{cell || ""}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="xo-status">
+              <div className="status-text">
+                { checkWinner(board) ? (checkWinner(board).winner === "TIE" ? "Tie!" : `${checkWinner(board).winner} Wins!`) : `${xIsNext ? "X" : "O"} to move` }
+              </div>
+              <div className="status-note">{ aiThinking ? "Computer is thinking..." : "" }</div>
+            </div>
+          </div>
+        </main>
+
+        <footer className="xo-footer">
+          <div className="note"></div>
+        </footer>
       </div>
     </div>
   );
